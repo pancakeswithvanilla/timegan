@@ -1,0 +1,14 @@
+numpy==1.26.4
+tensorflow==2.17.0
+pandas==2.2.2
+matplotlib==3.9.2
+scikit-learn==1.5.1
+tqdm==4.66.5
+absl-py==2.1.0
+keras==3.5.0
+requests==2.32.3
+pyabf==2.3.8
+seaborn==0.13.2
+ruptures==1.1.9
+fastdtw==0.3.4
+bayesian-optimization 
