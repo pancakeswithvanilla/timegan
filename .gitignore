@@ -1,0 +1,7 @@
+models/*
+!models/**/
+models/**/*
+events_with_no_comp/*
+plots/*
+generated_signals/*
+losses*
