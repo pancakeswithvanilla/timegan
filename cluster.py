@@ -620,13 +620,159 @@ def tsne():
     tsne_results = apply_tsne(scaled_data)
     plot_tsne(tsne_results,"plots/tsne/events_nonevents_my_algo.png", labels=combined_labels)
 
+def get_non_event_segments(signal_length, cusum_data):
+    event_indices = []
+
+    # Gather all event indices from cusum_data
+    for event in cusum_data:
+        start, end = event['start_end_in_raw']
+        event_indices.append((start, end))
+
+    # Sort event indices just in case they are not sorted
+    event_indices.sort()
+
+    non_event_segments = []
+    previous_end = 0  # Track the end of the last event
+
+    # Iterate over event indices to find non-event segments
+    for start, end in event_indices:
+        if previous_end < start:
+            # There is a non-event segment
+            non_event_segments.append([previous_end, start])
+        previous_end = end
+
+    # Check for a non-event segment at the end of the signal
+    if previous_end < signal_length:
+        non_event_segments.append([previous_end, signal_length])
+
+    return non_event_segments
+
+def calculate_change_times(signal, k=3):
+    """
+    Calculate change times for a signal based on thresholding.
+    
+    Parameters:
+    signal (np.ndarray): The input signal data.
+    k (float): The factor for standard deviation to set the threshold.
+
+    Returns:
+    list: Indices of change points in the signal.
+    """
+    mean = np.mean(signal)
+    std = np.std(signal)
+
+    upper_threshold = mean + k * std
+    lower_threshold = mean - k * std
+
+    change_times = []
+    
+    for i in range(1, len(signal)):
+        if (signal[i] > upper_threshold and signal[i - 1] <= upper_threshold) or \
+           (signal[i] < lower_threshold and signal[i - 1] >= lower_threshold):
+            change_times.append(i)
+    if change_times == []:
+        change_times.append(1)
+        change_times.append(len(signal))
+
+
+    return change_times
+
+def calculate_non_event_features(signal, samplerate, non_event_indices, fit_level_thresh=5):
+    """
+    Calculate features for each non-event segment.
+
+    Parameters
+    ----------
+    signal : np.ndarray
+        The full signal data.
+    samplerate : float
+        The samplerate of the signal.
+    non_event_indices : list
+        List of tuples with start and end indices for non-events.
+    fit_level_thresh : int
+        Minimum length of one level in samples.
+
+    Returns
+    -------
+    list
+        A list of dictionaries containing features for each non-event segment.
+    """
+    non_event_features_list = []
+
+    for start, end in non_event_indices:
+        nonevent = signal_data[start:end + 1]
+        levels_info = []
+        
+        # Calculate levels and dwell times
+        ct = calculate_change_times(nonevent)
+        
+        # Compute local baseline
+        baseline = np.mean(nonevent)
+
+        levels_info = []
+        if len(ct) == 0:
+            levels_info = [(0.0, 0)]  
+            height = 0.0    
+        elif len(levels_info) == 1:
+                height = -1 * levels_info[0][0]     
+        else:
+            for i in range(1, len(ct)):
+                lvl_curr = np.mean(nonevent[ct[i - 1]:ct[i]]) - baseline
+                lvl_dwell_sample = ct[i] - ct[i - 1]
+                if lvl_dwell_sample > fit_level_thresh:
+                    levels_info.append((lvl_curr, lvl_dwell_sample))
+                height = max([lvl for lvl, _ in levels_info], default=0) - min([lvl for lvl, _ in levels_info], default=0)
+
+        # Construct the features dictionary
+        features = {
+            'signal_w_baseline': nonevent - baseline,
+            'start_end_in_raw': (start + ct[0], start + ct[-1]),
+            'start_end_in_sig': (ct[0], ct[-1]),
+            'local_baseline': baseline,
+            'level_info': levels_info,
+            'mean': np.mean(nonevent),
+            'std': np.std(nonevent),
+            'change_times': ct,
+            'height': height,
+            'dwell': (end - start) / samplerate  # Dwell time in seconds
+        }
+
+        non_event_features_list.append(features)
+    return non_event_features_list
+
 def main():
     my_data, cusum_data, pelt_data = load_data()
+    samplerate = 40_000_000 
     keys = cusum_data[0].keys()
 
     # Print the keys
     for key in keys:
         print(key)
+    signal_length = len(signal_data)  # Assuming my_data contains the full signal data
+    non_event_segments = get_non_event_segments(signal_length, pelt_data)
+    non_event_features = calculate_non_event_features(pelt_data, samplerate, non_event_segments)
+    features = non_event_features[1]
+    pfeatures = pelt_data[2]
+    print("Features for Non-Event 0:")
+    print(f"Start and End in Signal: {features['start_end_in_sig']}")
+    print(f"Start and End in Raw: {features['start_end_in_raw']}")
+    print(f"Local Baseline: {features['local_baseline']}")
+    print(f"Level Info: {features['level_info']}")
+    print(f"Mean: {features['mean']}")
+    print(f"Standard Deviation: {features['std']}")
+    print(f"Change Times: {features['change_times']}")
+    print(f"Height: {features['height']}")
+    print(f"Dwell: {features['dwell']}")
+    print("Features for Event 0:")
+    print(f"Start and End in Signal: {pfeatures['start_end_in_sig']}")
+    print(f"Start and End in Raw: {pfeatures['start_end_in_raw']}")
+    print(f"Local Baseline: {pfeatures['local_baseline']}")
+    print(f"Level Info: {pfeatures['level_info']}")
+    print(f"Mean: {pfeatures['mean']}")
+    print(f"Standard Deviation: {pfeatures['std']}")
+    print(f"Change Times: {pfeatures['change_times']}")
+    print(f"Height: {pfeatures['height']}")
+    print(f"Dwell: {pfeatures['dwell']}")
     # my_data_frag_with_overlap = fragment_signals(my_data, 200, 25)
     # for id, frag in enumerate(my_data_frag_with_overlap[:25]):
     #     plt.figure(figsize=(8, 6))  
